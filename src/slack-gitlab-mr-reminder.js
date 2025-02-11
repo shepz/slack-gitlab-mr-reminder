@@ -25,14 +25,16 @@ class SlackGitlabMRReminder {
   formatSlackMessage(mr) {
     const createdAt = moment(mr.created_at);
     const updatedAt = moment(mr.updated_at);
-    const age = createdAt.fromNow(true); // "8 months"
-    const staleFor = updatedAt.fromNow(true); // "8 months"
+    const age = createdAt.fromNow(true);
+    const staleFor = moment().diff(moment(mr.updated_at), 'days') > 0 ? updatedAt.fromNow(true) : 'Just updated';
 
-    let waitingOn = mr.blockers.length > 0 ? `Waiting on ${mr.blockers.join(', ')}` : '';
+    // Remove author from blockers (they shouldn't be waiting on themselves)
+    const filteredBlockers = mr.blockers.filter(user => user !== mr.author.username);
+    const waitingOn = filteredBlockers.length > 0 ? `Waiting on ${filteredBlockers.join(', ')}` : 'Needs attention';
 
     return `<${mr.web_url}|[#${mr.iid}] ${mr.title}> (${mr.author.username})\n` +
-           `⏳ ${staleFor} stale · 🗓️ ${age} old · ${waitingOn}`;
-}
+      `⏳ ${staleFor} stale · 🗓️ ${age} old · ${waitingOn}`;
+  }
 
   createSlackMessage(merge_requests) {
     const messages = merge_requests.map(mr => this.formatSlackMessage(mr));

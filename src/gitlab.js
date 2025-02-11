@@ -1,14 +1,13 @@
 var request = require('request-promise-native');
 
-class GitLab
-{
+class GitLab {
   constructor(external_url, access_token, group) {
     this.external_url = external_url;
     this.access_token = access_token;
     this.group = group;
   }
 
-  _getProjectMergeRequest(project_id,{page=1}) {
+  _getProjectMergeRequest(project_id, { page = 1 }) {
     const options = {
       uri: `${this.external_url}/api/v4/projects/${project_id}/merge_requests?state=opened&page=${page}`,
       headers: {
@@ -28,23 +27,23 @@ class GitLab
       json: true,
       resolveWithFullResponse: true,
     };
-    
+
     try {
       let promises = []
       const resp = await request(options);
       const firstPage = resp.body;
       const totalPages = Number(resp.headers['x-total-pages']);
-      for(let pageNumber = 2; pageNumber <= totalPages; pageNumber++) {
-        promises.push(this._getProjectMergeRequest(project_id,{ page: pageNumber }));
+      for (let pageNumber = 2; pageNumber <= totalPages; pageNumber++) {
+        promises.push(this._getProjectMergeRequest(project_id, { page: pageNumber }));
       }
 
       let merge_requests = firstPage;
-      
+
       if (totalPages > 1) {
-        merge_requests = merge_requests.concat(await Promise.all(promises)); 
-      } 
+        merge_requests = merge_requests.concat(await Promise.all(promises));
+      }
       return merge_requests;
-    } catch(e) {
+    } catch (e) {
       throw e;
     }
   }
@@ -76,18 +75,18 @@ class GitLab
       const totalPages = Number(resp.headers['x-total-pages']);
       // console.log(resp.headers);
 
-      for(let pageNumber = 2; pageNumber <= totalPages; pageNumber++) {
+      for (let pageNumber = 2; pageNumber <= totalPages; pageNumber++) {
         promises.push(this._getProject({ page: pageNumber }));
       }
 
       let projects = firstPage;
       if (totalPages > 1) {
-        projects = projects.concat(await Promise.all(promises));        
-      } 
-      
+        projects = projects.concat(await Promise.all(promises));
+      }
+
       return projects;
-    } catch(e) {      
-        throw e;
+    } catch (e) {
+      throw e;
     }
   }
 
@@ -99,7 +98,7 @@ class GitLab
     };
     try {
       const discussions = await request(options);
-      return discussions.some(discussion => 
+      return discussions.some(discussion =>
         discussion.notes.some(note => note.resolvable && !note.resolved)
       );
     } catch (e) {
@@ -158,6 +157,26 @@ class GitLab
     }
   }
 
+  async getReviewersAndAssignees(project_id, mr_iid) {
+    const options = {
+      uri: `${this.external_url}/api/v4/projects/${project_id}/merge_requests/${mr_iid}`,
+      headers: { 'PRIVATE-TOKEN': this.access_token },
+      json: true
+    };
+
+    try {
+      const mr = await request(options);
+
+      const reviewers = mr.reviewers ? mr.reviewers.map(r => r.username) : [];
+      const assignees = mr.assignees ? mr.assignees.map(a => a.username) : [];
+
+      return [...new Set([...reviewers, ...assignees])]; // Remove duplicates
+    } catch (e) {
+      console.error(`Error fetching reviewers for MR ${mr_iid}:`, e.message);
+      return [];
+    }
+  }
+
   async getGroupMergeRequests() {
     const projects = await this.getProjects();
     const merge_requests = await Promise.all(
@@ -179,10 +198,12 @@ class GitLab
             mrs.map(async mr => {
               const unresolvedUsers = await this.getUnresolvedReviewers(project.id, mr.iid);
               const pendingReviewers = await this.getPendingApprovals(project.id, mr.iid);
+              const assignedReviewers = await this.getReviewersAndAssignees(project.id, mr.iid);
 
-              mr.blockers = [...new Set([...unresolvedUsers, ...pendingReviewers])];
+              // Combine all waiting users (remove duplicates)
+              mr.blockers = [...new Set([...unresolvedUsers, ...pendingReviewers, ...assignedReviewers])];
 
-              return mr.blockers.length > 0 ? mr : null;
+              return mr;
             })
           );
         })
@@ -190,6 +211,7 @@ class GitLab
 
     return [].concat(...merge_requests).filter(mr => mr !== null);
   }
+
 }
 
 module.exports = GitLab;
