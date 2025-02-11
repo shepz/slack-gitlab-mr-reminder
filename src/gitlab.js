@@ -123,6 +123,41 @@ class GitLab
     }
   }
 
+  async getUnresolvedReviewers(project_id, mr_iid) {
+    const options = {
+      uri: `${this.external_url}/api/v4/projects/${project_id}/merge_requests/${mr_iid}/discussions`,
+      headers: { 'PRIVATE-TOKEN': this.access_token },
+      json: true
+    };
+    try {
+      const discussions = await request(options);
+      return discussions
+        .flatMap(discussion => discussion.notes)
+        .filter(note => note.resolvable && !note.resolved)
+        .map(note => note.author.username);
+    } catch (e) {
+      console.error(`Error fetching discussions for MR ${mr_iid}:`, e.message);
+      return [];
+    }
+  }
+
+  async getPendingApprovals(project_id, mr_iid) {
+    const options = {
+      uri: `${this.external_url}/api/v4/projects/${project_id}/merge_requests/${mr_iid}/approvals`,
+      headers: { 'PRIVATE-TOKEN': this.access_token },
+      json: true
+    };
+    try {
+      const approvalData = await request(options);
+      return approvalData.approvers
+        .filter(approver => !approver.approved)
+        .map(approver => approver.username);
+    } catch (e) {
+      console.error(`Error checking approvals for MR ${mr_iid}:`, e.message);
+      return [];
+    }
+  }
+
   async getGroupMergeRequests() {
     const projects = await this.getProjects();
     const merge_requests = await Promise.all(
@@ -142,9 +177,12 @@ class GitLab
           const mrs = await this.getProjectMergeRequests(project.id);
           return Promise.all(
             mrs.map(async mr => {
-              const hasUnresolved = await this.hasUnresolvedDiscussions(project.id, mr.iid);
-              const pendingReview = await this.isReviewPending(project.id, mr.iid);
-              return (hasUnresolved || pendingReview) ? mr : null;
+              const unresolvedUsers = await this.getUnresolvedReviewers(project.id, mr.iid);
+              const pendingReviewers = await this.getPendingApprovals(project.id, mr.iid);
+
+              mr.blockers = [...new Set([...unresolvedUsers, ...pendingReviewers])];
+
+              return mr.blockers.length > 0 ? mr : null;
             })
           );
         })

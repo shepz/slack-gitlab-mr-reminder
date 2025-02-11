@@ -1,15 +1,14 @@
-var moment = require('moment');
-var slack = require('@slack/client');
-var GitLab = require('./gitlab');
+const moment = require('moment');
+const slack = require('@slack/client');
+const GitLab = require('./gitlab');
 const { isWipMr } = require('./is-wip-mr');
 
 const SLACK_LOGO_URL = 'https://about.gitlab.com/images/press/logo/logo.png';
 
 class SlackGitlabMRReminder {
-
   constructor(options) {
     this.options = options;
-    this.options.mr = this.options.mr || {}; // backward compatible;
+    this.options.mr = this.options.mr || {}; // backward compatible
     this.options.gitlab.external_url = this.options.gitlab.external_url || 'https://gitlab.com';
     this.options.slack.name = this.options.slack.name || 'GitLab Reminder';
     this.options.slack.message = this.options.slack.message || 'Merge requests are overdue:';
@@ -23,46 +22,49 @@ class SlackGitlabMRReminder {
     });
   }
 
-  createSlackMessage(merge_requests) {
-    const attachments = merge_requests.map((mr) => {
-      return {
-        color: '#FC6D26',
-        author_name: mr.author.name,
-        title: mr.title,
-        title_link: mr.web_url,
-        text: mr.description,
-      };
-    });
+  formatSlackMessage(mr) {
+    const createdAt = moment(mr.created_at);
+    const updatedAt = moment(mr.updated_at);
+    const age = createdAt.fromNow(true); // "8 months"
+    const staleFor = updatedAt.fromNow(true); // "8 months"
 
+    let waitingOn = mr.blockers.length > 0 ? `Waiting on ${mr.blockers.join(', ')}` : '';
+
+    return `<${mr.web_url}|[#${mr.iid}] ${mr.title}> (${mr.author.username})\n` +
+           `⏳ ${staleFor} stale · 🗓️ ${age} old · ${waitingOn}`;
+}
+
+  createSlackMessage(merge_requests) {
+    const messages = merge_requests.map(mr => this.formatSlackMessage(mr));
     return {
       text: this.options.slack.message,
-      attachments
+      attachments: messages.map(text => ({ text, color: '#FC6D26' }))
     };
   }
-  
+
   async remind() {
     let merge_requests = await this.gitlab.getFilteredMergeRequests();
-  
+
     merge_requests = merge_requests.filter(mr => {
       if (!mr || !mr.title) return false; // Ensure MR object and title exist
-  
+
       const isWip = isWipMr(mr);
       const threshold = isWip ? this.options.mr.wip_mr_days_threshold : this.options.mr.normal_mr_days_threshold;
-  
+
       return moment().diff(moment(mr.updated_at), 'days') > threshold;
     });
-  
+
     if (merge_requests.length === 0) {
       return 'No reminders to send';
     }
-  
+
     const message = this.createSlackMessage(merge_requests);
     return new Promise((resolve, reject) => {
       this.webhook.send(message, (err, res) => {
         err ? reject(err) : resolve('Reminder sent');
       });
     });
-  }  
+  }
 }
 
 module.exports = SlackGitlabMRReminder;
