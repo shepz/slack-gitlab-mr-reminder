@@ -91,6 +91,38 @@ class GitLab
     }
   }
 
+  async hasUnresolvedDiscussions(project_id, mr_iid) {
+    const options = {
+      uri: `${this.external_url}/api/v4/projects/${project_id}/merge_requests/${mr_iid}/discussions`,
+      headers: { 'PRIVATE-TOKEN': this.access_token },
+      json: true
+    };
+    try {
+      const discussions = await request(options);
+      return discussions.some(discussion => 
+        discussion.notes.some(note => note.resolvable && !note.resolved)
+      );
+    } catch (e) {
+      console.error(`Error fetching discussions for MR ${mr_iid}:`, e.message);
+      return false; // Assume no unresolved discussions on failure
+    }
+  }
+
+  async isReviewPending(project_id, mr_iid) {
+    const options = {
+      uri: `${this.external_url}/api/v4/projects/${project_id}/merge_requests/${mr_iid}/approvals`,
+      headers: { 'PRIVATE-TOKEN': this.access_token },
+      json: true
+    };
+    try {
+      const approvalData = await request(options);
+      return approvalData.approvals_left > 0; // True if approvals are still needed
+    } catch (e) {
+      console.error(`Error checking approvals for MR ${mr_iid}:`, e.message);
+      return false;
+    }
+  }
+
   async getGroupMergeRequests() {
     const projects = await this.getProjects();
     const merge_requests = await Promise.all(
@@ -99,6 +131,26 @@ class GitLab
         .map((project) => this.getProjectMergeRequests(project.id))
     );
     return [].concat(...merge_requests);
+  }
+
+  async getFilteredMergeRequests() {
+    const projects = await this.getProjects();
+    const merge_requests = await Promise.all(
+      projects
+        .filter(project => project.id !== undefined)
+        .map(async project => {
+          const mrs = await this.getProjectMergeRequests(project.id);
+          return Promise.all(
+            mrs.map(async mr => {
+              const hasUnresolved = await this.hasUnresolvedDiscussions(project.id, mr.iid);
+              const pendingReview = await this.isReviewPending(project.id, mr.iid);
+              return (hasUnresolved || pendingReview) ? mr : null;
+            })
+          );
+        })
+    );
+
+    return [].concat(...merge_requests).filter(mr => mr !== null);
   }
 }
 

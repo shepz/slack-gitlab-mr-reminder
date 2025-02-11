@@ -41,24 +41,28 @@ class SlackGitlabMRReminder {
   }
   
   async remind() {
-    let merge_requests = await this.gitlab.getGroupMergeRequests();
-    merge_requests = merge_requests.filter((mr) => {
-      if (!mr || !mr.title) {
-        return;
-      }
-      const threshold = isWipMr(mr.title) ? this.options.mr.wip_mr_days_threshold : this.options.mr.normal_mr_days_threshold;
+    let merge_requests = await this.gitlab.getFilteredMergeRequests();
+  
+    merge_requests = merge_requests.filter(mr => {
+      if (!mr || !mr.title) return false; // Ensure MR object and title exist
+  
+      const isWip = isWipMr(mr);
+      const threshold = isWip ? this.options.mr.wip_mr_days_threshold : this.options.mr.normal_mr_days_threshold;
+  
       return moment().diff(moment(mr.updated_at), 'days') > threshold;
     });
-    if(merge_requests.length === 0) {
-      return 'No reminders to send'
+  
+    if (merge_requests.length === 0) {
+      return 'No reminders to send';
     }
+  
     const message = this.createSlackMessage(merge_requests);
     return new Promise((resolve, reject) => {
       this.webhook.send(message, (err, res) => {
         err ? reject(err) : resolve('Reminder sent');
       });
     });
-  }
+  }  
 }
 
 module.exports = SlackGitlabMRReminder;
