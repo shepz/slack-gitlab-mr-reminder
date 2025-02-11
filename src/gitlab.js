@@ -187,7 +187,16 @@ class GitLab {
     return [].concat(...merge_requests);
   }
 
-  async getFilteredMergeRequests() {
+  async getFilteredMergeRequests(allowedReviewers) {
+    if (!Array.isArray(allowedReviewers)) {
+      allowedReviewers = []; // Ensure it's always an array
+    }
+    console.log(`🔍 Applying allowed reviewers: ${allowedReviewers.length > 0 ? allowedReviewers.join(', ') : "None (all reviewers allowed)"}`);
+
+    if (allowedReviewers == 0) {
+      process.exit(1); // Exit with an error;
+    }
+
     const projects = await this.getProjects();
     const merge_requests = await Promise.all(
       projects
@@ -201,8 +210,26 @@ class GitLab {
               const assignedReviewers = await this.getReviewersAndAssignees(project.id, mr.iid);
 
               // Combine all waiting users (remove duplicates)
-              mr.blockers = [...new Set([...unresolvedUsers, ...pendingReviewers, ...assignedReviewers])];
+              let blockers = [...new Set([...unresolvedUsers, ...pendingReviewers, ...assignedReviewers])];
 
+              console.log(`🔍 MR #${mr.iid}: ${mr.title}`);
+              console.log(`   Author: ${mr.author.username}`);
+              console.log(`   Reviewers before filtering: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
+              console.log(`   Allowed reviewers: ${allowedReviewers.length > 0 ? allowedReviewers.join(', ') : "None"}`);
+
+              // ✅ Apply the filtering only if `allowedReviewers` is set
+              if (allowedReviewers.length > 0) {
+                blockers = blockers.filter(user => allowedReviewers.includes(user));
+
+                console.log(`   ✅ Reviewers after filtering: ${blockers.length > 0 ? blockers.join(', ') : "None (MR will be skipped)"}`);
+
+                if (blockers.length === 0) {
+                  console.log(`   ❌ Skipping MR #${mr.iid} (No allowed reviewers found)`);
+                  return null;
+                }
+              }
+
+              mr.blockers = blockers;
               return mr;
             })
           );
@@ -211,6 +238,7 @@ class GitLab {
 
     return [].concat(...merge_requests).filter(mr => mr !== null);
   }
+
 
 }
 
