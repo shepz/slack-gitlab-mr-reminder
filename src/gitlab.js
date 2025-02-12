@@ -140,6 +140,23 @@ class GitLab {
     }
   }
 
+  async getApprovedUsers(project_id, mr_iid) {
+    const options = {
+      uri: `${this.external_url}/api/v4/projects/${project_id}/merge_requests/${mr_iid}/approvals`,
+      headers: { 'PRIVATE-TOKEN': this.access_token },
+      json: true
+    };
+    try {
+      const approvalData = await request(options);
+
+      // ✅ Only return users who HAVE approved
+      return approvalData.approved_by.map(approver => approver.user.username);
+    } catch (e) {
+      console.error(`Error checking approved users for MR ${mr_iid}:`, e.message);
+      return [];
+    }
+  }
+
   async getPendingApprovals(project_id, mr_iid) {
     const options = {
       uri: `${this.external_url}/api/v4/projects/${project_id}/merge_requests/${mr_iid}/approvals`,
@@ -148,9 +165,13 @@ class GitLab {
     };
     try {
       const approvalData = await request(options);
-      return approvalData.approvers
+
+      // ✅ Filter only users who have NOT approved
+      const pendingApprovers = approvalData.approvers
         .filter(approver => !approver.approved)
         .map(approver => approver.username);
+
+      return pendingApprovers;
     } catch (e) {
       console.error(`Error checking approvals for MR ${mr_iid}:`, e.message);
       return [];
@@ -193,10 +214,6 @@ class GitLab {
     }
     console.log(`🔍 Applying allowed reviewers: ${allowedReviewers.length > 0 ? allowedReviewers.join(', ') : "None (all reviewers allowed)"}`);
 
-    if (allowedReviewers == 0) {
-      process.exit(1); // Exit with an error;
-    }
-
     const projects = await this.getProjects();
     const merge_requests = await Promise.all(
       projects
@@ -209,15 +226,19 @@ class GitLab {
               const pendingReviewers = await this.getPendingApprovals(project.id, mr.iid);
               const assignedReviewers = await this.getReviewersAndAssignees(project.id, mr.iid);
 
-              // Combine all waiting users (remove duplicates)
-              let blockers = [...new Set([...unresolvedUsers, ...pendingReviewers, ...assignedReviewers])];
+              // ✅ Fetch users who already approved the MR
+              const approvedUsers = await this.getApprovedUsers(project.id, mr.iid);
+
+              // 🛑 **Remove duplicates and filter out approved users**
+              let blockers = [...new Set([...unresolvedUsers, ...pendingReviewers, ...assignedReviewers])]
+                .filter(user => !approvedUsers.includes(user));
 
               console.log(`🔍 MR #${mr.iid}: ${mr.title}`);
               console.log(`   Author: ${mr.author.username}`);
               console.log(`   Reviewers before filtering: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
               console.log(`   Allowed reviewers: ${allowedReviewers.length > 0 ? allowedReviewers.join(', ') : "None"}`);
 
-              // ✅ Apply the filtering only if `allowedReviewers` is set
+              // ✅ Apply filtering only if `allowedReviewers` is set
               if (allowedReviewers.length > 0) {
                 blockers = blockers.filter(user => allowedReviewers.includes(user));
 
