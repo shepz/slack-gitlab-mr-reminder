@@ -140,7 +140,7 @@ class GitLab {
     }
   }
 
-  async getApprovedUsers(project_id, mr_iid) {
+  async getApprovedUsers(project_id, mr_iid, allowedReviewers) {
     const options = {
       uri: `${this.external_url}/api/v4/projects/${project_id}/merge_requests/${mr_iid}/approvals`,
       headers: { 'PRIVATE-TOKEN': this.access_token },
@@ -150,9 +150,14 @@ class GitLab {
       const approvalData = await request(options);
 
       // ✅ List of users who have approved
-      const approvedUsers = approvalData.approved_by.map(approver => approver.user.username);
+      let approvedUsers = approvalData.approved_by.map(approver => approver.user.username);
 
-      // ✅ Number of total approvals
+      // ✅ If allowedReviewers is set, only count approvals from this list
+      if (allowedReviewers.length > 0) {
+        approvedUsers = approvedUsers.filter(user => allowedReviewers.includes(user));
+      }
+
+      // ✅ Number of valid approvals (from allowed reviewers only)
       const approvalCount = approvedUsers.length;
 
       return { approvedUsers, approvalCount };
@@ -214,11 +219,12 @@ class GitLab {
     return [].concat(...merge_requests);
   }
 
-  async getFilteredMergeRequests(allowedReviewers, minApprovalsRequired) {
+  async getFilteredMergeRequests(allowedReviewers, minApprovalsRequired = 0) {
     if (!Array.isArray(allowedReviewers)) {
       allowedReviewers = [];
     }
     console.log(`🔍 Applying allowed reviewers: ${allowedReviewers.length > 0 ? allowedReviewers.join(', ') : "None (all reviewers allowed)"}`);
+    console.log(`🔍 Minimum approvals required: ${minApprovalsRequired}`);
 
     const projects = await this.getProjects();
     const merge_requests = await Promise.all(
@@ -232,8 +238,8 @@ class GitLab {
               const pendingReviewers = await this.getPendingApprovals(project.id, mr.iid);
               const assignedReviewers = await this.getReviewersAndAssignees(project.id, mr.iid);
 
-              // ✅ Fetch users who already approved and approval count
-              const { approvedUsers, approvalCount } = await this.getApprovedUsers(project.id, mr.iid);
+              // ✅ Fetch approved users (only from allowed reviewers)
+              const { approvedUsers, approvalCount } = await this.getApprovedUsers(project.id, mr.iid, allowedReviewers);
 
               // 🛑 **Remove duplicates and filter out approved users**
               let blockers = [...new Set([...unresolvedUsers, ...pendingReviewers, ...assignedReviewers])]
@@ -243,10 +249,11 @@ class GitLab {
               console.log(`   Author: ${mr.author.username}`);
               console.log(`   Reviewers before filtering: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
               console.log(`   Allowed reviewers: ${allowedReviewers.length > 0 ? allowedReviewers.join(', ') : "None"}`);
+              console.log(`   Current approvals from allowed reviewers: ${approvalCount}, Required: ${minApprovalsRequired}`);
 
-              // ✅ Apply the minimum approval requirement
+              // ✅ Apply the minimum approval requirement (only counting allowed reviewers)
               if (approvalCount >= minApprovalsRequired) {
-                console.log(`   ✅ MR #${mr.iid} already has ${approvalCount} approvals (Threshold: ${minApprovalsRequired}). Skipping.`);
+                console.log(`   ✅ MR #${mr.iid} already has ${approvalCount} approvals from allowed reviewers (Threshold: ${minApprovalsRequired}). Skipping.`);
                 return null;
               }
 

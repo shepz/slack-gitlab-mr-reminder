@@ -40,18 +40,17 @@ class SlackGitlabMRReminder {
     // Remove author from the blockers list
     const filteredBlockers = mr.blockers.filter(user => user !== mr.author.username);
 
-    // Convert GitLab usernames to Slack mentions
+    // ✅ Convert GitLab usernames to Slack mentions **only for reviewers**
     const waitingOn = filteredBlockers.length > 0
       ? `Waiting on ${filteredBlockers.map(user => this.getSlackMention(user)).join(', ')}`
       : null;
 
     if (!waitingOn) return null; // Skip if no blockers
 
-    return `<${mr.web_url}|[#${mr.iid}] ${mr.title}> (${this.getSlackMention(mr.author.username)})\n` +
+    // ✅ Display author's GitLab username as plain text (no Slack mention)
+    return `<${mr.web_url}|[#${mr.iid}] ${mr.title}> (${mr.author.username})\n` +
       `⏳ ${staleFor} stale · 🗓️ ${age} old · ${waitingOn}`;
   }
-
-
 
   createSlackMessage(merge_requests) {
     const messages = merge_requests
