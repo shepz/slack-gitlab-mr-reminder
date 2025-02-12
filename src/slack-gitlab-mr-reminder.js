@@ -15,6 +15,7 @@ class SlackGitlabMRReminder {
     this.options.mr.normal_mr_days_threshold = this.options.mr.normal_mr_days_threshold || 0;
     this.options.mr.wip_mr_days_threshold = this.options.mr.wip_mr_days_threshold || 7;
     this.options.allowed_reviewers = this.options.allowed_reviewers || [];
+    this.options.slack_user_map = this.options.slack_user_map || {}; // Load user map
 
     this.gitlab = new GitLab(this.options.gitlab.external_url, this.options.gitlab.access_token, this.options.gitlab.group);
     this.webhook = new slack.IncomingWebhook(this.options.slack.webhook_url, {
@@ -24,6 +25,10 @@ class SlackGitlabMRReminder {
     });
   }
 
+  getSlackMention(gitlabUsername) {
+    const slackUserId = this.options.slack_user_map[gitlabUsername];
+    return slackUserId ? `<@${slackUserId}>` : gitlabUsername;
+  }
 
   formatSlackMessage(mr) {
     const createdAt = moment(mr.created_at);
@@ -33,18 +38,24 @@ class SlackGitlabMRReminder {
 
     // Remove author from the blockers list
     const filteredBlockers = mr.blockers.filter(user => user !== mr.author.username);
-    const waitingOn = filteredBlockers.length > 0 ? `Waiting on ${filteredBlockers.join(', ')}` : null;
 
-    // ✅ Ensure that if no blockers exist, the MR is not displayed at all
-    if (!waitingOn) return null;
+    // Convert GitLab usernames to Slack mentions
+    const waitingOn = filteredBlockers.length > 0
+      ? `Waiting on ${filteredBlockers.map(user => this.getSlackMention(user)).join(', ')}`
+      : null;
 
-    return `<${mr.web_url}|[#${mr.iid}] ${mr.title}> (${mr.author.username})\n` +
+    if (!waitingOn) return null; // Skip if no blockers
+
+    return `<${mr.web_url}|[#${mr.iid}] ${mr.title}> (${this.getSlackMention(mr.author.username)})\n` +
       `⏳ ${staleFor} stale · 🗓️ ${age} old · ${waitingOn}`;
   }
 
 
+
   createSlackMessage(merge_requests) {
-    const messages = merge_requests.map(mr => this.formatSlackMessage(mr));
+    const messages = merge_requests
+      .map(mr => this.formatSlackMessage(mr))
+      .filter(text => text !== null); // Ensure only valid messages are sent
     return {
       text: this.options.slack.message,
       attachments: messages.map(text => ({ text, color: '#FC6D26' }))
