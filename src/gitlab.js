@@ -149,13 +149,19 @@ class GitLab {
     try {
       const approvalData = await request(options);
 
-      // ✅ Only return users who HAVE approved
-      return approvalData.approved_by.map(approver => approver.user.username);
+      // ✅ List of users who have approved
+      const approvedUsers = approvalData.approved_by.map(approver => approver.user.username);
+
+      // ✅ Number of total approvals
+      const approvalCount = approvedUsers.length;
+
+      return { approvedUsers, approvalCount };
     } catch (e) {
       console.error(`Error checking approved users for MR ${mr_iid}:`, e.message);
-      return [];
+      return { approvedUsers: [], approvalCount: 0 };
     }
   }
+
 
   async getPendingApprovals(project_id, mr_iid) {
     const options = {
@@ -208,9 +214,9 @@ class GitLab {
     return [].concat(...merge_requests);
   }
 
-  async getFilteredMergeRequests(allowedReviewers) {
+  async getFilteredMergeRequests(allowedReviewers, minApprovalsRequired) {
     if (!Array.isArray(allowedReviewers)) {
-      allowedReviewers = []; // Ensure it's always an array
+      allowedReviewers = [];
     }
     console.log(`🔍 Applying allowed reviewers: ${allowedReviewers.length > 0 ? allowedReviewers.join(', ') : "None (all reviewers allowed)"}`);
 
@@ -226,8 +232,8 @@ class GitLab {
               const pendingReviewers = await this.getPendingApprovals(project.id, mr.iid);
               const assignedReviewers = await this.getReviewersAndAssignees(project.id, mr.iid);
 
-              // ✅ Fetch users who already approved the MR
-              const approvedUsers = await this.getApprovedUsers(project.id, mr.iid);
+              // ✅ Fetch users who already approved and approval count
+              const { approvedUsers, approvalCount } = await this.getApprovedUsers(project.id, mr.iid);
 
               // 🛑 **Remove duplicates and filter out approved users**
               let blockers = [...new Set([...unresolvedUsers, ...pendingReviewers, ...assignedReviewers])]
@@ -238,7 +244,13 @@ class GitLab {
               console.log(`   Reviewers before filtering: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
               console.log(`   Allowed reviewers: ${allowedReviewers.length > 0 ? allowedReviewers.join(', ') : "None"}`);
 
-              // ✅ Apply filtering only if `allowedReviewers` is set
+              // ✅ Apply the minimum approval requirement
+              if (approvalCount >= minApprovalsRequired) {
+                console.log(`   ✅ MR #${mr.iid} already has ${approvalCount} approvals (Threshold: ${minApprovalsRequired}). Skipping.`);
+                return null;
+              }
+
+              // ✅ Apply allowed reviewers filtering
               if (allowedReviewers.length > 0) {
                 blockers = blockers.filter(user => allowedReviewers.includes(user));
 

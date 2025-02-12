@@ -14,6 +14,7 @@ class SlackGitlabMRReminder {
     this.options.slack.message = this.options.slack.message || 'Merge requests are overdue:';
     this.options.mr.normal_mr_days_threshold = this.options.mr.normal_mr_days_threshold || 0;
     this.options.mr.wip_mr_days_threshold = this.options.mr.wip_mr_days_threshold || 7;
+    this.options.mr.min_approvals_required = this.options.mr.min_approvals_required || 0;
     this.options.allowed_reviewers = this.options.allowed_reviewers || [];
     this.options.slack_user_map = this.options.slack_user_map || {}; // Load user map
 
@@ -63,7 +64,7 @@ class SlackGitlabMRReminder {
   }
 
   async remind() {
-    let merge_requests = await this.gitlab.getFilteredMergeRequests(this.options.allowed_reviewers);
+    let merge_requests = await this.gitlab.getFilteredMergeRequests(this.options.allowed_reviewers, this.options.mr.min_approvals_required);
 
     console.log(`🔍 Found ${merge_requests.length} MRs after filtering by reviewers`);
 

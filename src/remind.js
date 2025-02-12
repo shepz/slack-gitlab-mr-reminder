@@ -36,6 +36,7 @@ options.gitlab.external_url = options.gitlab.external_url || process.env['GITLAB
 // ✅ Load MR thresholds
 options.mr.normal_mr_days_threshold = options.mr.normal_mr_days_threshold || process.env['GITLAB_NORMAL_MR_DAYS_THRESHOLD'];
 options.mr.wip_mr_days_threshold = options.mr.wip_mr_days_threshold || process.env['GITLAB_WIP_MR_DAYS_THRESHOLD'];
+options.mr.min_approvals_required = options.mr.min_approvals_required || process.env['GITLAB_MIN_APPROVALS_REQUIRED'];
 
 // ✅ Debug logs
 if (process.env['REMINDER_DEBUG']) {
