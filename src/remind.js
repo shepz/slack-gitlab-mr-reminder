@@ -34,8 +34,8 @@ options.gitlab.group = options.gitlab.group || process.env['GITLAB_GROUP'];
 options.gitlab.external_url = options.gitlab.external_url || process.env['GITLAB_EXTERNAL_URL'];
 
 // ✅ Load MR thresholds
-options.mr.normal_mr_days_threshold = options.mr.normal_mr_days_threshold || process.env['GITLAB_NORMAL_MR_DAYS_THRESHOLD'];
-options.mr.wip_mr_days_threshold = options.mr.wip_mr_days_threshold || process.env['GITLAB_WIP_MR_DAYS_THRESHOLD'];
+options.mr.normal_mr_hours_threshold = options.mr.normal_mr_hours_threshold || process.env['GITLAB_NORMAL_MR_HOURS_THRESHOLD'];
+options.mr.wip_mr_hours_threshold = options.mr.wip_mr_hours_threshold || process.env['GITLAB_WIP_MR_HOURS_THRESHOLD'];
 options.mr.min_approvals_required = options.mr.min_approvals_required || process.env['GITLAB_MIN_APPROVALS_REQUIRED'];
 
 // ✅ Debug logs

@@ -12,8 +12,8 @@ class SlackGitlabMRReminder {
     this.options.gitlab.external_url = this.options.gitlab.external_url || 'https://gitlab.com';
     this.options.slack.name = this.options.slack.name || 'GitLab Reminder';
     this.options.slack.message = this.options.slack.message || 'Merge requests are overdue:';
-    this.options.mr.normal_mr_days_threshold = this.options.mr.normal_mr_days_threshold || 0;
-    this.options.mr.wip_mr_days_threshold = this.options.mr.wip_mr_days_threshold || 7;
+    this.options.mr.normal_mr_hours_threshold = this.options.mr.normal_mr_hours_threshold || 0;
+    this.options.mr.wip_mr_hours_threshold = this.options.mr.wip_mr_hours_threshold || 7;
     this.options.mr.min_approvals_required = this.options.mr.min_approvals_required || 0;
     this.options.allowed_reviewers = this.options.allowed_reviewers || [];
     this.options.slack_user_map = this.options.slack_user_map || {}; // Load user map
@@ -71,9 +71,15 @@ class SlackGitlabMRReminder {
       if (!mr || !mr.title) return false; // Ensure MR object and title exist
 
       const isWip = isWipMr(mr);
-      const threshold = isWip ? this.options.mr.wip_mr_days_threshold : this.options.mr.normal_mr_days_threshold;
+      const thresholdHours = isWip ? this.options.mr.wip_mr_hours_threshold : this.options.mr.normal_mr_hours_threshold;
 
-      return moment().diff(moment(mr.updated_at), 'days') > threshold;
+      // ✅ Convert timestamps to hours instead of days
+      const lastUpdated = moment(mr.updated_at);
+      const staleHours = moment().diff(lastUpdated, 'hours');
+
+      console.log(`🕒 MR #${mr.iid} was last updated ${staleHours} hours ago (Threshold: ${thresholdHours} hours)`);
+
+      return staleHours > thresholdHours;
     });
 
     console.log(`📢 Sending reminders for ${merge_requests.length} MRs`);
