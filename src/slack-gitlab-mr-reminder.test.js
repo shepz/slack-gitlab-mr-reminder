@@ -1,7 +1,6 @@
 const SlackGitlabMRReminder = require('./slack-gitlab-mr-reminder');
 const moment = require('moment');
 
-// Mock options
 const mock_options = {
   slack: {
     webhook_url: 'hook',
@@ -13,109 +12,283 @@ const mock_options = {
   }
 };
 
-// ✅ Properly mock the GitLab API class to prevent real API calls
-jest.mock('./gitlab', () => {
-  return jest.fn().mockImplementation(() => ({
-    getFilteredMergeRequests: jest.fn(() => Promise.resolve(mock_merge_requests))
-  }));
-});
-
-// ✅ Mock Slack webhook send function
-jest.mock('@slack/client', () => ({
-  IncomingWebhook: jest.fn().mockImplementation(() => ({
-    send: jest.fn((message, callback) => callback(null, 'Reminder sent'))
-  }))
-}));
-
-// ✅ Ensure `blockers` field always exists to avoid `.filter()` errors
 const mock_merge_requests = [
   {
     id: 1,
     title: 'MR1',
     description: 'MR1 description',
-    author: { username: 'person' },
+    author: {
+      name: 'person'
+    },
     web_url: 'https://gitlab.com/merge/1',
-    updated_at: moment().subtract(8, 'days').toDate(),
-    blockers: [] // ✅ Added empty blockers array
+    updated_at: 1234567
   },
   {
     id: 2,
     title: 'MR2',
     description: 'MR2 description',
-    author: { username: 'person' },
+    author: {
+      name: 'person'
+    },
     web_url: 'https://gitlab.com/merge/2',
-    updated_at: moment().subtract(4, 'days').toDate(),
-    blockers: ['reviewer1'] // ✅ Example blocker
+    updated_at: moment()
+      .subtract(4, 'days')
+      .toDate()
   },
   {
     id: 3,
     title: 'WIP: MR3',
     description: 'WIP MR with :',
-    author: { username: 'person' },
+    author: {
+      name: 'person'
+    },
     web_url: 'https://gitlab.com/merge/3',
-    updated_at: moment().subtract(10, 'days').toDate(),
-    blockers: [] // ✅ Ensure blockers is defined
+    updated_at: moment()
+      .subtract(10, 'days')
+      .toDate()
   },
   {
     id: 4,
     title: '[WIP] MR4',
     description: 'WIP MR with []',
-    author: { username: 'person' },
+    author: {
+      name: 'person'
+    },
     web_url: 'https://gitlab.com/merge/4',
-    updated_at: moment().subtract(10, 'days').toDate(),
-    blockers: [] // ✅ Ensure blockers is defined
+    updated_at: moment()
+      .subtract(10, 'days')
+      .toDate()
+  },
+  {
+    id: 5,
+    title: 'wIp: MR5',
+    description: 'WIP MR with : and case-insensitive',
+    author: {
+      name: 'person'
+    },
+    web_url: 'https://gitlab.com/merge/5',
+    updated_at: moment()
+      .subtract(10, 'days')
+      .toDate()
+  },
+  {
+    id: 5,
+    title: '[wiP] MR6',
+    description: 'WIP MR with [] and case-insensitive',
+    author: {
+      name: 'person'
+    },
+    web_url: 'https://gitlab.com/merge/6',
+    updated_at: moment()
+      .subtract(10, 'days')
+      .toDate()
   }
 ];
 
 test('merge requests reminder is sent', async () => {
-  const reminder = new SlackGitlabMRReminder(mock_options);
-  jest.spyOn(reminder.webhook, 'send');
-
+  var reminder = new SlackGitlabMRReminder(mock_options);
+  reminder.gitlab.getGroupMergeRequests = jest.fn(() => {
+    return new Promise((resolve, reject) => {
+      process.nextTick(() => {
+        resolve(mock_merge_requests);
+      });
+    });
+  });
   const result = await reminder.remind();
   expect(result).toBe('Reminder sent');
   expect(reminder.webhook.send).toHaveBeenCalledTimes(1);
+  expect(reminder.webhook.send.mock.calls[0][0]).toEqual({
+    attachments: [
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'MR1 description',
+        title: 'MR1',
+        title_link: 'https://gitlab.com/merge/1'
+      },
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'MR2 description',
+        title: 'MR2',
+        title_link: 'https://gitlab.com/merge/2'
+      },
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'WIP MR with :',
+        title: 'WIP: MR3',
+        title_link: 'https://gitlab.com/merge/3'
+      },
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'WIP MR with []',
+        title: '[WIP] MR4',
+        title_link: 'https://gitlab.com/merge/4'
+      },
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'WIP MR with : and case-insensitive',
+        title: 'wIp: MR5',
+        title_link: 'https://gitlab.com/merge/5'
+      },
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'WIP MR with [] and case-insensitive',
+        title: '[wiP] MR6',
+        title_link: 'https://gitlab.com/merge/6'
+      }
+    ],
+    text: 'Merge requests are overdue:'
+  });
 });
 
 test('merge requests (normal older than 5 days and all WIP) reminder is sent', async () => {
-  const reminder = new SlackGitlabMRReminder(
-      Object.assign({}, mock_options, { mr: { normal_mr_days_threshold: 5, wip_mr_days_threshold: 0 } })
+  var reminder = new SlackGitlabMRReminder(
+    Object.assign(mock_options, {
+      mr: {
+        normal_mr_days_threshold: 5,
+        wip_mr_days_threshold: 0
+      }
+    })
   );
-  jest.spyOn(reminder.webhook, 'send');
-
+  reminder.gitlab.getGroupMergeRequests = jest.fn(() => {
+    return new Promise((resolve, reject) => {
+      process.nextTick(() => {
+        resolve(mock_merge_requests);
+      });
+    });
+  });
   const result = await reminder.remind();
   expect(result).toBe('Reminder sent');
   expect(reminder.webhook.send).toHaveBeenCalledTimes(1);
+  expect(reminder.webhook.send.mock.calls[0][0]).toEqual({
+    attachments: [
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'MR1 description',
+        title: 'MR1',
+        title_link: 'https://gitlab.com/merge/1'
+      },
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'WIP MR with :',
+        title: 'WIP: MR3',
+        title_link: 'https://gitlab.com/merge/3'
+      },
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'WIP MR with []',
+        title: '[WIP] MR4',
+        title_link: 'https://gitlab.com/merge/4'
+      },
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'WIP MR with : and case-insensitive',
+        title: 'wIp: MR5',
+        title_link: 'https://gitlab.com/merge/5'
+      },
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'WIP MR with [] and case-insensitive',
+        title: '[wiP] MR6',
+        title_link: 'https://gitlab.com/merge/6'
+      }
+    ],
+    text: 'Merge requests are overdue:'
+  });
 });
 
 test('merge requests (all normal and no WIP) reminder is sent', async () => {
-  const reminder = new SlackGitlabMRReminder(
-      Object.assign({}, mock_options, { mr: { normal_mr_days_threshold: 0, wip_mr_days_threshold: 30 } })
+  var reminder = new SlackGitlabMRReminder(
+    Object.assign(mock_options, {
+      mr: {
+        normal_mr_days_threshold: 0,
+        wip_mr_days_threshold: 30
+      }
+    })
   );
-  jest.spyOn(reminder.webhook, 'send');
-
+  reminder.gitlab.getGroupMergeRequests = jest.fn(() => {
+    return new Promise((resolve, reject) => {
+      process.nextTick(() => {
+        resolve(mock_merge_requests);
+      });
+    });
+  });
   const result = await reminder.remind();
   expect(result).toBe('Reminder sent');
   expect(reminder.webhook.send).toHaveBeenCalledTimes(1);
+  expect(reminder.webhook.send.mock.calls[0][0]).toEqual({
+    attachments: [
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'MR1 description',
+        title: 'MR1',
+        title_link: 'https://gitlab.com/merge/1'
+      },
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'MR2 description',
+        title: 'MR2',
+        title_link: 'https://gitlab.com/merge/2'
+      }
+    ],
+    text: 'Merge requests are overdue:'
+  });
 });
 
-test('merge requests (normal older than 5 days and no WIP) reminder is sent', async () => {
-  const reminder = new SlackGitlabMRReminder(
-      Object.assign({}, mock_options, { mr: { normal_mr_days_threshold: 5, wip_mr_days_threshold: Infinity } })
-  );
-  jest.spyOn(reminder.webhook, 'send');
 
+test('merge requests (normal older than 5 days and no WIP) reminder is sent', async () => {
+  var reminder = new SlackGitlabMRReminder(
+    Object.assign(mock_options, {
+      mr: {
+        normal_mr_days_threshold: 5,
+        wip_mr_days_threshold: Infinity
+      }
+    })
+  );
+  reminder.gitlab.getGroupMergeRequests = jest.fn(() => {
+    return new Promise((resolve, reject) => {
+      process.nextTick(() => {
+        resolve(mock_merge_requests);
+      });
+    });
+  });
   const result = await reminder.remind();
   expect(result).toBe('Reminder sent');
   expect(reminder.webhook.send).toHaveBeenCalledTimes(1);
+  expect(reminder.webhook.send.mock.calls[0][0]).toEqual({
+    attachments: [
+      {
+        author_name: 'person',
+        color: '#FC6D26',
+        text: 'MR1 description',
+        title: 'MR1',
+        title_link: 'https://gitlab.com/merge/1'
+      }
+    ],
+    text: 'Merge requests are overdue:'
+  });
 });
 
 test('no merge requests to send', async () => {
-  const reminder = new SlackGitlabMRReminder(mock_options);
-  jest.spyOn(reminder.webhook, 'send');
-
-  // ✅ Mock an empty array return
-  reminder.gitlab.getFilteredMergeRequests = jest.fn(() => Promise.resolve([]));
-
+  var reminder = new SlackGitlabMRReminder(mock_options);
+  reminder.gitlab.getGroupMergeRequests = jest.fn(() => {
+    return new Promise((resolve, _) => {
+      process.nextTick(() => {
+        resolve([]);
+      });
+    });
+  });
   expect(await reminder.remind()).toEqual('No reminders to send');
-  expect(reminder.webhook.send).toHaveBeenCalledTimes(0);
 });
