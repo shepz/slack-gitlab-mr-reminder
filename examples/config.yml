@@ -1,6 +1,6 @@
 mr:
-  normal_mr_days_threshold: 3
-  wip_mr_days_threshold: 7
+  normal_mr_hours_threshold: 3
+  wip_mr_hours_threshold: 7
   min_approvals_required: 2
 
 gitlab:

@@ -92,8 +92,8 @@ Supported env variables:
 | GITLAB_ACCESS_TOKEN | None | Gitlab access token |
 | GITLAB_GROUP | None | Gitlab group name |
 | GITLAB_EXTERNAL_URL | None | Gitlab installation url |
-| GITLAB_WIP_MR_DAYS_THRESHOLD | 7 | Value in days representing threshold of notifying about stale MR |
-| GITLAB_NORMAL_MR_DAYS_THRESHOLD | 0 | Value in days representing threshold of notifying about stale MR |
+| GITLAB_WIP_MR_HOURS_THRESHOLD | 7 | Value in hours representing threshold of notifying about stale MR |
+| GITLAB_NORMAL_MR_HOURS_THRESHOLD | 0 | Value in hours representing threshold of notifying about stale MR |
 | SLACK_WEBHOOK_URL | None | Slack webhook to send notifications |
 | SLACK_CHANNEL  | None | Slack channel name |
 
