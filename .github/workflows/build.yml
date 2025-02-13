@@ -1,16 +1,16 @@
-name: Build docker image
+name: Build and Push Docker Image
 
 on:
   push:
     branches:
       - master
+  pull_request:
   create:
     tags:
       - v*
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   build:
@@ -22,12 +22,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Docker Login
+      - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: docker.io/gveschambre/slack-gitlab-mr-reminder
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -35,6 +40,5 @@ jobs:
           context: .
           push: true
           file: docker/Dockerfile
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

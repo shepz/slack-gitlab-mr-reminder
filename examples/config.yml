@@ -1,6 +1,7 @@
 mr:
-  normal_mr_days_threshold: 3
-  wip_mr_days_threshold: 7
+  normal_mr_hours_threshold: 3
+  wip_mr_hours_threshold: 7
+  min_approvals_required: 2
 
 gitlab:
   group: mygroup
@@ -12,3 +13,13 @@ slack:
   name: Gitlab Reminder
   message: Get to work on those merge requests!
   webhook_url: 'https://hooks.slack.com/services/...'
+
+allowed_reviewers:
+  - gitlab_username1
+  - gitlab_username2
+  - gitlab_username3
+
+slack_user_map:
+  gitlab_username1: U021132134
+  gitlab_username2: U4331412
+  gitlab_username3: U4332423
