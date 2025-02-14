@@ -42,24 +42,42 @@ class SlackGitlabMRReminder {
 
     // ✅ Convert GitLab usernames to Slack mentions **only for reviewers**
     const waitingOn = filteredBlockers.length > 0
-      ? `Waiting on ${filteredBlockers.map(user => this.getSlackMention(user)).join(', ')}`
-      : null;
+        ? `Waiting on ${filteredBlockers.map(user => this.getSlackMention(user)).join(', ')}`
+        : null;
 
     if (!waitingOn) return null; // Skip if no blockers
 
     // ✅ Display author's GitLab username as plain text (no Slack mention)
     return `<${mr.web_url}|[#${mr.iid}] ${mr.title}> (${mr.author.username})\n` +
-      `⏳ ${staleFor} stale · 🗓️ ${age} old · ${waitingOn}`;
+        `⏳ ${staleFor} stale · 🗓️ ${age} old · ${waitingOn}`;
   }
 
   createSlackMessage(merge_requests) {
     const messages = merge_requests
-      .map(mr => this.formatSlackMessage(mr))
-      .filter(text => text !== null); // Ensure only valid messages are sent
+        .map(mr => this.formatSlackMessage(mr))
+        .filter(text => text !== null); // Ensure only valid messages are sent
     return {
       text: this.options.slack.message,
       attachments: messages.map(text => ({ text, color: '#FC6D26' }))
     };
+  }
+
+  // Function to count business hours only (Monday - Friday, 9 AM - 5 PM)
+  calculateBusinessHours(startTime) {
+    let currentTime = moment();
+    let totalHours = 0;
+
+    while (startTime.isBefore(currentTime)) {
+      // Move to the next hour
+      startTime.add(1, 'hour');
+
+      // Only count hours if it's a weekday and within working hours
+      if (startTime.isoWeekday() < 6 && startTime.hour() >= 9 && startTime.hour() < 17) {
+        totalHours++;
+      }
+    }
+
+    return totalHours;
   }
 
   async remind() {
@@ -73,13 +91,13 @@ class SlackGitlabMRReminder {
       const isWip = isWipMr(mr);
       const thresholdHours = isWip ? this.options.mr.wip_mr_hours_threshold : this.options.mr.normal_mr_hours_threshold;
 
-      // ✅ Convert timestamps to hours instead of days
+      // ✅ Compute only business hours
       const lastUpdated = moment(mr.updated_at);
-      const staleHours = moment().diff(lastUpdated, 'hours');
+      const staleHours = this.calculateBusinessHours(lastUpdated);
 
-      console.log(`🕒 MR #${mr.iid} was last updated ${staleHours} hours ago (Threshold: ${thresholdHours} hours)`);
+      console.log(`🕒 MR #${mr.iid} was last updated ${staleHours} business hours ago (Threshold: ${thresholdHours} hours)`);
 
-      return staleHours > thresholdHours;
+      return staleHours >= thresholdHours;
     });
 
     console.log(`📢 Sending reminders for ${merge_requests.length} MRs`);
