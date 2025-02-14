@@ -238,6 +238,12 @@ class GitLab {
                     const mrs = await this.getProjectMergeRequests(project.id);
                     return Promise.all(
                         mrs.map(async mr => {
+                            // 🛑 Exclude MRs with detailed_merge_status === "requested_changes"
+                            if (mr.detailed_merge_status === "requested_changes") {
+                                console.log(`   🚫 Skipping MR #${mr.iid} (Requested changes)`);
+                                return null;
+                            }
+
                             const unresolvedUsers = await this.getUnresolvedReviewers(project.id, mr.iid);
                             const pendingReviewers = await this.getPendingApprovals(project.id, mr.iid);
                             const assignedReviewers = await this.getReviewersAndAssignees(project.id, mr.iid);
