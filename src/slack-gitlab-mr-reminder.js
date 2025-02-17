@@ -35,21 +35,24 @@ class SlackGitlabMRReminder {
     const createdAt = moment(mr.created_at);
     const updatedAt = moment(mr.updated_at);
     const age = createdAt.fromNow(true);
-    const staleFor = updatedAt.fromNow(true);
+
+    // Use calculateBusinessHours to get the stale time in business hours
+    const staleHours = this.calculateBusinessHours(updatedAt);
+    const staleFor = `${staleHours} business hours stale`;
 
     // Remove author from the blockers list
     const filteredBlockers = mr.blockers.filter(user => user !== mr.author.username);
 
-    // ✅ Convert GitLab usernames to Slack mentions **only for reviewers**
+    // Convert GitLab usernames to Slack mentions only for reviewers
     const waitingOn = filteredBlockers.length > 0
         ? `Waiting on ${filteredBlockers.map(user => this.getSlackMention(user)).join(', ')}`
         : null;
 
     if (!waitingOn) return null; // Skip if no blockers
 
-    // ✅ Display author's GitLab username as plain text (no Slack mention)
+    // Display author's GitLab username as plain text (no Slack mention)
     return `<${mr.web_url}|[#${mr.iid}] ${mr.title}> (${mr.author.username})\n` +
-        `⏳ ${staleFor} stale · 🗓️ ${age} old · ${waitingOn}`;
+        `⏳ ${staleFor} · 🗓️ ${age} old · ${waitingOn}`;
   }
 
   createSlackMessage(merge_requests) {
@@ -67,14 +70,34 @@ class SlackGitlabMRReminder {
     let currentTime = moment();
     let totalHours = 0;
 
-    while (startTime.isBefore(currentTime)) {
-      // Move to the next hour
-      startTime.add(1, 'hour');
+    // Adjust startTime to the next business hour if it falls outside business hours
+    if (startTime.isoWeekday() >= 6 || startTime.hour() < 9 || startTime.hour() >= 17) {
+        if (startTime.isoWeekday() >= 6) {
+            startTime.add(8 - startTime.isoWeekday(), 'days').hour(9).minute(0);
+        } else if (startTime.hour() >= 17) {
+            startTime.add(1, 'days').hour(9).minute(0);
+        } else {
+            startTime.hour(9).minute(0);
+        }
+    }
 
-      // Only count hours if it's a weekday and within working hours
-      if (startTime.isoWeekday() < 6 && startTime.hour() >= 9 && startTime.hour() < 17) {
-        totalHours++;
-      }
+    while (startTime.isBefore(currentTime)) {
+        // Only count hours if it's a weekday and within working hours
+        if (startTime.isoWeekday() < 6 && startTime.hour() >= 9 && startTime.hour() < 17) {
+            totalHours++;
+        }
+
+        // Move to the next hour
+        startTime.add(1, 'hour');
+
+        // If we reach the end of the business day, skip to the next business day
+        if (startTime.hour() >= 17) {
+            startTime.add(1, 'days').hour(9).minute(0);
+            // Skip weekends
+            if (startTime.isoWeekday() >= 6) {
+                startTime.add(8 - startTime.isoWeekday(), 'days');
+            }
+        }
     }
 
     return totalHours;
