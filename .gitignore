@@ -59,3 +59,6 @@ typings/
 
 #Test config
 config*.yml
+
+# Helm
+helm-charts/
