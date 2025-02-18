@@ -275,6 +275,9 @@ class GitLab {
                             const unresolvedButNoReply = await this.getUnresolvedReviewers(project.id, mr.iid);
                             blockers = blockers.filter(user => !unresolvedButNoReply.includes(user));
 
+                            // Exclude the author
+                            blockers = blockers.filter(user => user !== mr.author.username);
+
                             console.log(`   ✅ Final Reviewers after checking assignee replies: ${blockers.length > 0 ? blockers.join(', ') : "None (MR will be skipped)"}`);
 
                             // Ensure that an MR is skipped if no valid reviewers remain
