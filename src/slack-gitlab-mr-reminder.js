@@ -55,13 +55,37 @@ class SlackGitlabMRReminder {
         `⏳ ${staleFor} · 🗓️ ${age} old · ${waitingOn}`;
   }
 
-  createSlackMessage(merge_requests) {
-    const messages = merge_requests
-        .map(mr => this.formatSlackMessage(mr))
-        .filter(text => text !== null); // Ensure only valid messages are sent
+  createSlackMessage(mergeRequests) {
+    if (!mergeRequests || mergeRequests.length === 0) {
+        return null;
+    }
+
+    const attachments = mergeRequests.map(mr => {
+        const createdAt = moment(mr.created_at);
+        const updatedAt = moment(mr.updated_at);
+        const age = createdAt.fromNow(true);
+        const staleHours = this.calculateBusinessHours(updatedAt);
+        const staleFor = `${staleHours} business hours stale`;
+
+        // Remove author from the blockers list
+        const filteredBlockers = mr.blockers.filter(user => user !== mr.author.username);
+
+        // Convert GitLab usernames to Slack mentions only for reviewers
+        const waitingOn = filteredBlockers.length > 0
+            ? `Waiting on ${filteredBlockers.map(user => this.getSlackMention(user)).join(', ')}`
+            : 'No reviewers waiting';
+
+        return {
+            title: `[#${mr.iid}] ${mr.title}`,
+            title_link: mr.web_url,
+            text: `⏳ ${staleFor} · 🗓️ ${age} old · ${waitingOn}`,
+            color: '#36a64f'
+        };
+    });
+
     return {
-      text: this.options.slack.message,
-      attachments: messages.map(text => ({ text, color: '#FC6D26' }))
+        text: this.options.slack.message,
+        attachments: attachments
     };
   }
 

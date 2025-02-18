@@ -107,18 +107,24 @@ class GitLab {
 
             return discussions
                 .flatMap(discussion => {
+                    // Ignore discussions started by an assignee
+                    if (assignees.includes(discussion.notes[0].author.username)) {
+                        console.log(`  ❌ Ignoring discussion started by assignee: ${discussion.notes[0].author.username}`);
+                        return [];
+                    }
+
                     const unresolvedNotes = discussion.notes.filter(note => note.resolvable && !note.resolved);
 
                     if (unresolvedNotes.length === 0) return [];
 
-                    // Identify the **latest unresolved comment**
+                    // Identify the latest unresolved comment
                     const latestUnresolvedNote = unresolvedNotes.reduce((latest, note) =>
                         new Date(note.created_at) > new Date(latest.created_at) ? note : latest
                     );
 
                     console.log(`  📌 Unresolved comment by ${latestUnresolvedNote.author.username} at ${latestUnresolvedNote.created_at}`);
 
-                    // ✅ Get all replies by assignees in this discussion
+                    // Get all replies by assignees in this discussion
                     const assigneeReplies = discussion.notes.filter(note =>
                         assignees.includes(note.author.username) &&
                         new Date(note.created_at) > new Date(latestUnresolvedNote.created_at)
@@ -126,18 +132,16 @@ class GitLab {
 
                     console.log(`  🔎 Assignee replies: ${assigneeReplies.length}`);
 
-                    // ❌ If no assignee has replied AFTER the unresolved comment, don't remind the reviewer
+                    // If no assignee has replied AFTER the unresolved comment, don't remind the reviewer
                     if (assigneeReplies.length === 0) {
                         console.log(`  ❌ Skipping ${latestUnresolvedNote.author.username} (assignee has NOT replied)`);
                         return [];
                     }
 
-                    console.log(`  ✅ Reminding ${latestUnresolvedNote.author.username} (assignee replied but didn’t resolve)`);
                     return [latestUnresolvedNote.author.username];
-                })
-                .filter((username, index, self) => username && self.indexOf(username) === index);
-        } catch (e) {
-            console.error(`Error fetching discussions for MR ${mr_iid}:`, e.message);
+                });
+        } catch (error) {
+            console.error(`Error fetching unresolved reviewers for MR ${mr_iid}:`, error);
             return [];
         }
     }
