@@ -31,30 +31,6 @@ class SlackGitlabMRReminder {
     return slackUserId ? `<@${slackUserId}>` : gitlabUsername;
   }
 
-  formatSlackMessage(mr) {
-    const createdAt = moment(mr.created_at);
-    const updatedAt = moment(mr.updated_at);
-    const age = createdAt.fromNow(true);
-
-    // Use calculateBusinessHours to get the stale time in business hours
-    const staleHours = this.calculateBusinessHours(updatedAt);
-    const staleFor = `${staleHours} business hours stale`;
-
-    // Remove author from the blockers list
-    const filteredBlockers = mr.blockers.filter(user => user !== mr.author.username);
-
-    // Convert GitLab usernames to Slack mentions only for reviewers
-    const waitingOn = filteredBlockers.length > 0
-        ? `Waiting on ${filteredBlockers.map(user => this.getSlackMention(user)).join(', ')}`
-        : null;
-
-    if (!waitingOn) return null; // Skip if no blockers
-
-    // Display author's GitLab username as plain text (no Slack mention)
-    return `<${mr.web_url}|[#${mr.iid}] ${mr.title}> (${mr.author.username})\n` +
-        `⏳ ${staleFor} · 🗓️ ${age} old · ${waitingOn}`;
-  }
-
   createSlackMessage(mergeRequests) {
     if (!mergeRequests || mergeRequests.length === 0) {
         return null;
