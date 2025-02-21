@@ -300,7 +300,21 @@ class GitLab {
         return [].concat(...merge_requests).filter(mr => mr !== null);
     }
 
+    async getGroupName() {
+        const options = {
+            uri: `${this.external_url}/api/v4/groups/${this.group}`,
+            headers: { 'PRIVATE-TOKEN': this.access_token },
+            json: true
+        };
 
+        try {
+            const group = await request(options);
+            return group.name;
+        } catch (e) {
+            console.error(`Error fetching group name for group ID ${this.group}:`, e.message);
+            return null;
+        }
+    }
 }
 
 module.exports = GitLab;

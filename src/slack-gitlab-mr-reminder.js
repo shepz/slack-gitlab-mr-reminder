@@ -31,10 +31,13 @@ class SlackGitlabMRReminder {
     return slackUserId ? `<@${slackUserId}>` : gitlabUsername;
   }
 
-  createSlackMessage(mergeRequests) {
+  async createSlackMessage(mergeRequests) {
     if (!mergeRequests || mergeRequests.length === 0) {
         return null;
     }
+
+    const groupName = await this.gitlab.getGroupName();
+    const messageText = groupName ? `*Pending review on ${groupName} group*` : this.options.slack.message;
 
     const attachments = mergeRequests.map(mr => {
         const createdAt = moment(mr.created_at);
@@ -60,7 +63,7 @@ class SlackGitlabMRReminder {
     });
 
     return {
-        text: this.options.slack.message,
+        text: messageText,
         attachments: attachments
     };
   }
@@ -130,7 +133,7 @@ class SlackGitlabMRReminder {
       return 'No reminders to send';
     }
 
-    const message = this.createSlackMessage(merge_requests);
+    const message = await this.createSlackMessage(merge_requests);
     return new Promise((resolve, reject) => {
       this.webhook.send(message, (err, res) => {
         err ? reject(err) : resolve('Reminder sent');
