@@ -15,9 +15,13 @@ const mock_options = {
 
 // ✅ Properly mock the GitLab API class to prevent real API calls
 jest.mock('./gitlab', () => {
-  return jest.fn().mockImplementation(() => ({
-    getFilteredMergeRequests: jest.fn(() => Promise.resolve(mock_merge_requests))
-  }));
+  return jest.fn().mockImplementation(() => {
+    return {
+      getGroupName: jest.fn(() => Promise.resolve('Test Group')),
+      getFilteredMergeRequests: jest.fn(() => Promise.resolve(mock_merge_requests)),
+      // Mock other methods if they are used in the tests
+    };
+  });
 });
 
 // ✅ Mock Slack webhook send function
