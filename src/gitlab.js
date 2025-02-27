@@ -23,31 +23,33 @@ class GitLab {
             uri: `${this.external_url}/api/v4/projects/${project_id}/merge_requests?state=opened`,
             headers: {
                 'PRIVATE-TOKEN': this.access_token,
-
             },
             json: true,
             resolveWithFullResponse: true,
         };
-
+    
         try {
-            let promises = []
+            let promises = [];
             const resp = await request(options);
             const firstPage = resp.body;
             const totalPages = Number(resp.headers['x-total-pages']);
+    
             for (let pageNumber = 2; pageNumber <= totalPages; pageNumber++) {
                 promises.push(this._getProjectMergeRequest(project_id, {page: pageNumber}));
             }
-
+    
             let merge_requests = firstPage;
-
+    
             if (totalPages > 1) {
-                merge_requests = merge_requests.concat(await Promise.all(promises));
+                const additionalPages = await Promise.all(promises);
+                // Flatten the array so each element is a MR object
+                merge_requests = merge_requests.concat(...additionalPages);
             }
             return merge_requests;
         } catch (e) {
             throw e;
         }
-    }
+    }    
 
     _getProject({page = 1}) {
         const options = {
