@@ -105,7 +105,7 @@ class GitLab {
             const assignees = await this.getReviewersAndAssignees(project_id, mr_iid);
 
             console.log(`🔍 Checking unresolved discussions for MR ${mr_iid}`);
-            console.log(`🔹 Assignees: ${assignees.join(', ')}`);
+            console.log(`🔹 Assignees: ${assignees.length > 0 ? assignees.join(', ') : "None"}`);
 
             return discussions
                 .flatMap(discussion => {
@@ -115,32 +115,41 @@ class GitLab {
                         return [];
                     }
 
-                    const unresolvedNotes = discussion.notes.filter(note => note.resolvable && !note.resolved);
-
-                    if (unresolvedNotes.length === 0) return [];
-
-                    // Identify the latest unresolved comment
-                    const latestUnresolvedNote = unresolvedNotes.reduce((latest, note) =>
-                        new Date(note.created_at) > new Date(latest.created_at) ? note : latest
-                    );
-
-                    console.log(`  📌 Unresolved comment by ${latestUnresolvedNote.author.username} at ${latestUnresolvedNote.created_at}`);
-
-                    // Get all replies by assignees in this discussion
-                    const assigneeReplies = discussion.notes.filter(note =>
-                        assignees.includes(note.author.username) &&
-                        new Date(note.created_at) > new Date(latestUnresolvedNote.created_at)
-                    );
-
-                    console.log(`  🔎 Assignee replies: ${assigneeReplies.length}`);
-
-                    // If no assignee has replied AFTER the unresolved comment, don't remind the reviewer
-                    if (assigneeReplies.length === 0) {
-                        console.log(`  ❌ Skipping ${latestUnresolvedNote.author.username} (assignee has NOT replied)`);
+                    // Get all resolvable notes in this discussion
+                    const resolvableNotes = discussion.notes.filter(note => note.resolvable);
+                    
+                    // If there are no resolvable notes or all are resolved, skip this discussion
+                    if (resolvableNotes.length === 0 || resolvableNotes.every(note => note.resolved)) {
+                        console.log(`  ✅ Discussion is resolved or has no resolvable notes`);
                         return [];
                     }
 
-                    return [latestUnresolvedNote.author.username];
+                    // Get all unresolved notes
+                    const unresolvedNotes = resolvableNotes.filter(note => !note.resolved);
+                    
+                    // If all notes are resolved, skip this discussion
+                    if (unresolvedNotes.length === 0) {
+                        console.log(`  ✅ All notes are resolved in this discussion`);
+                        return [];
+                    }
+
+                    // Sort all notes by creation date (newest first)
+                    const sortedNotes = [...discussion.notes].sort((a, b) => 
+                        new Date(b.created_at) - new Date(a.created_at)
+                    );
+                    
+                    // Check if the latest note is from an assignee
+                    const latestNote = sortedNotes[0];
+                    if (assignees.includes(latestNote.author.username)) {
+                        console.log(`  ✅ Latest comment is from assignee: ${latestNote.author.username}`);
+                        return [];
+                    }
+                    
+                    // If we reach here, discussion is unresolved and last comment is not from assignee
+                    // Return the author of the first note in the discussion (the reviewer who started it)
+                    const reviewer = discussion.notes[0].author.username;
+                    console.log(`  ⚠️ Unresolved discussion started by ${reviewer} and last comment is not from assignee`);
+                    return [reviewer];
                 });
         } catch (error) {
             console.error(`Error fetching unresolved reviewers for MR ${mr_iid}:`, error);
