@@ -237,69 +237,90 @@ class GitLab {
         console.log(`🔍 Minimum approvals required: ${minApprovalsRequired}`);
 
         const projects = await this.getProjects();
-        const merge_requests = await Promise.all(
-            projects
-                .filter(project => project.id !== undefined)
-                .map(async project => {
-                    const mrs = await this.getProjectMergeRequests(project.id);
-                    return Promise.all(
-                        mrs.map(async mr => {
-                            // 🛑 Exclude MRs with detailed_merge_status === "requested_changes"
-                            if (mr.detailed_merge_status === "requested_changes") {
-                                console.log(`   🚫 Skipping MR #${mr.iid} (Requested changes)`);
+        const mergeRequestsPromises = projects
+            .filter(project => project.id !== undefined)
+            .map(async project => {
+                const mrs = await this.getProjectMergeRequests(project.id);
+                return Promise.all(
+                    mrs.map(async mr => {
+                        console.log(`🔍 Processing MR #${mr.iid}: ${mr.title}`);
+                        console.log(`   Author: ${mr.author.username}`);
+
+                        // 1. Exclude MRs with detailed_merge_status === "requested_changes"
+                        if (mr.detailed_merge_status === "requested_changes") {
+                            console.log(`   🚫 Skipping MR #${mr.iid} (Requested changes)`);
+                            return null;
+                        }
+
+                        // 2. Get assignees for this MR
+                        const assignees = await this.getReviewersAndAssignees(project.id, mr.iid);
+                        console.log(`   🔹 Assignees: ${assignees.length > 0 ? assignees.join(', ') : "None"}`);
+
+                        // 3. Get approval information
+                        const { approvedUsers, approvalCount } = await this.getApprovedUsers(project.id, mr.iid, allowedReviewers);
+                        console.log(`   ✅ Approved by: ${approvedUsers.length > 0 ? approvedUsers.join(', ') : "None"}`);
+                        console.log(`   ✅ Approval count from allowed reviewers: ${approvalCount}, Required: ${minApprovalsRequired}`);
+
+                        // 4. Skip if we have enough approvals from allowed reviewers
+                        if (approvalCount >= minApprovalsRequired && minApprovalsRequired > 0) {
+                            console.log(`   ✅ MR #${mr.iid} has enough approvals (${approvalCount}/${minApprovalsRequired}). Skipping.`);
+                            return null;
+                        }
+
+                        // 5. Get list of unresolved reviewers (discussions where last comment is not from assignee)
+                        // The getUnresolvedReviewers method already filters out discussions where:
+                        // - The discussion is started by an assignee
+                        // - The discussion is resolved
+                        // - The last comment is from an assignee
+                        const unresolvedReviewers = await this.getUnresolvedReviewers(project.id, mr.iid);
+                        console.log(`   📝 Unresolved reviewers: ${unresolvedReviewers.length > 0 ? unresolvedReviewers.join(', ') : "None"}`);
+
+                        // 6. Get pending reviewers (those who haven't approved yet)
+                        const pendingReviewers = await this.getPendingApprovals(project.id, mr.iid);
+                        console.log(`   🔄 Pending reviewers: ${pendingReviewers.length > 0 ? pendingReviewers.join(', ') : "None"}`);
+
+                        // 7. Combine potential blockers (unique set of unresolved reviewers and pending reviewers)
+                        let blockers = [...new Set([...unresolvedReviewers, ...pendingReviewers])];
+                        console.log(`   ⚠️ Initial blockers: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
+
+                        // 8. Exclude the MR author from the blockers list
+                        blockers = blockers.filter(user => user !== mr.author.username);
+
+                        // 9. Exclude assignees from the blockers list (their comments shouldn't block)
+                        blockers = blockers.filter(user => !assignees.includes(user));
+                        console.log(`   🔍 After excluding author and assignees: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
+
+                        // 10. Filter by allowed reviewers if specified
+                        if (allowedReviewers.length > 0) {
+                            blockers = blockers.filter(user => allowedReviewers.includes(user));
+                            console.log(`   🔍 After filtering to allowed reviewers: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
+                            
+                            // 11. Skip if no allowed reviewers remain as blockers
+                            if (blockers.length === 0) {
+                                console.log(`   ❌ Skipping MR #${mr.iid} (No allowed reviewers found after filtering)`);
                                 return null;
                             }
+                        }
 
-                            const unresolvedUsers = await this.getUnresolvedReviewers(project.id, mr.iid);
-                            const pendingReviewers = await this.getPendingApprovals(project.id, mr.iid);
-                            const assignedReviewers = await this.getReviewersAndAssignees(project.id, mr.iid);
+                        // 12. Remove users who have already approved from blockers
+                        blockers = blockers.filter(user => !approvedUsers.includes(user));
+                        console.log(`   ✅ Final blockers: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
 
-                            // Fetch approved users (only from allowed reviewers)
-                            const { approvedUsers, approvalCount } = await this.getApprovedUsers(project.id, mr.iid, allowedReviewers);
+                        // 13. Skip if no blockers remain
+                        if (blockers.length === 0) {
+                            console.log(`   ✅ Skipping MR #${mr.iid} (No blockers remain)`);
+                            return null;
+                        }
 
-                            // Remove duplicates and filter out approved users
-                            let blockers = [...new Set([...unresolvedUsers, ...pendingReviewers, ...assignedReviewers])]
-                                .filter(user => !approvedUsers.includes(user));
+                        // Add the blockers to the MR object
+                        mr.blockers = blockers;
+                        return mr;
+                    })
+                );
+            });
 
-                            console.log(`🔍 MR #${mr.iid}: ${mr.title}`);
-                            console.log(`   Author: ${mr.author.username}`);
-                            console.log(`   Reviewers before filtering: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
-                            console.log(`   Allowed reviewers: ${allowedReviewers.length > 0 ? allowedReviewers.join(', ') : "None"}`);
-                            console.log(`   Current approvals from allowed reviewers: ${approvalCount}, Required: ${minApprovalsRequired}`);
-
-                            // Apply the minimum approval requirement
-                            if (approvalCount >= minApprovalsRequired) {
-                                console.log(`   ✅ MR #${mr.iid} already has ${approvalCount} approvals from allowed reviewers (Threshold: ${minApprovalsRequired}). Skipping.`);
-                                return null;
-                            }
-
-                            // Remove reviewers who left unresolved comments **if no assignee has replied**
-                            const unresolvedButNoReply = await this.getUnresolvedReviewers(project.id, mr.iid);
-                            blockers = blockers.filter(user => !unresolvedButNoReply.includes(user));
-
-                            // Exclude the author
-                            blockers = blockers.filter(user => user !== mr.author.username);
-
-                            console.log(`   ✅ Final Reviewers after checking assignee replies: ${blockers.length > 0 ? blockers.join(', ') : "None (MR will be skipped)"}`);
-
-                            // Ensure that an MR is skipped if no valid reviewers remain
-                            if (allowedReviewers.length > 0) {
-                                blockers = blockers.filter(user => allowedReviewers.includes(user));
-
-                                if (blockers.length === 0) {
-                                    console.log(`   ❌ Skipping MR #${mr.iid} (No allowed reviewers found after filtering)`);
-                                    return null;
-                                }
-                            }
-
-                            mr.blockers = blockers;
-                            return mr;
-                        })
-                    );
-                })
-        );
-
-        return [].concat(...merge_requests).filter(mr => mr !== null);
+        const mergeRequestsLists = await Promise.all(mergeRequestsPromises);
+        return [].concat(...mergeRequestsLists).filter(mr => mr !== null);
     }
 
     async getGroupName() {
