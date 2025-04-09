@@ -288,34 +288,46 @@ class GitLab {
                         const pendingReviewers = await this.getPendingApprovals(project.id, mr.iid);
                         console.log(`   🔄 Pending reviewers: ${pendingReviewers.length > 0 ? pendingReviewers.join(', ') : "None"}`);
 
-                        // 7. Combine potential blockers (unique set of unresolved reviewers and pending reviewers)
-                        let blockers = [...new Set([...unresolvedReviewers, ...pendingReviewers])];
+                        // 7. Get assigned reviewers and filter to only include allowed reviewers
+                        // This ensures that assigned reviewers who haven't approved yet are considered
+                        const assignedReviewers = assignees.filter(user => 
+                            user !== mr.author.username && 
+                            !approvedUsers.includes(user) &&
+                            (allowedReviewers.length === 0 || allowedReviewers.includes(user))
+                        );
+                        console.log(`   🔄 Assigned reviewers (filtered): ${assignedReviewers.length > 0 ? assignedReviewers.join(', ') : "None"}`);
+
+                        // 8. Combine potential blockers (unique set of unresolved reviewers, pending reviewers, and assigned reviewers)
+                        let blockers = [...new Set([...unresolvedReviewers, ...pendingReviewers, ...assignedReviewers])];
                         console.log(`   ⚠️ Initial blockers: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
 
-                        // 8. Exclude the MR author from the blockers list
+                        // 9. Exclude the MR author from the blockers list
                         blockers = blockers.filter(user => user !== mr.author.username);
-
-                        // 9. Exclude assignees from the blockers list (their comments shouldn't block)
-                        blockers = blockers.filter(user => !assignees.includes(user));
-                        console.log(`   🔍 After excluding author and assignees: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
 
                         // 10. Filter by allowed reviewers if specified
                         if (allowedReviewers.length > 0) {
+                            // If there are no blockers at all, don't filter out the MR
+                            if (blockers.length > 0) {
+                                // Check if any of the potential reviewers are in the allowed list
+                                const hasAllowedReviewers = blockers.some(user => allowedReviewers.includes(user));
+                                
+                                // If there are blockers but none are in the allowed list, skip this MR
+                                if (!hasAllowedReviewers) {
+                                    console.log(`   ❌ Skipping MR #${mr.iid} (No allowed reviewers among blockers)`);
+                                    return null;
+                                }
+                            }
+                            
+                            // Filter blockers to only include allowed reviewers
                             blockers = blockers.filter(user => allowedReviewers.includes(user));
                             console.log(`   🔍 After filtering to allowed reviewers: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
-                            
-                            // 11. Skip if no allowed reviewers remain as blockers
-                            if (blockers.length === 0) {
-                                console.log(`   ❌ Skipping MR #${mr.iid} (No allowed reviewers found after filtering)`);
-                                return null;
-                            }
                         }
 
-                        // 12. Remove users who have already approved from blockers
+                        // 11. Remove users who have already approved from blockers
                         blockers = blockers.filter(user => !approvedUsers.includes(user));
                         console.log(`   ✅ Final blockers: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
 
-                        // 13. Skip if no blockers remain
+                        // 12. Skip if no blockers remain
                         if (blockers.length === 0) {
                             console.log(`   ✅ Skipping MR #${mr.iid} (No blockers remain)`);
                             return null;
