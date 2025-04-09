@@ -103,10 +103,36 @@ class GitLab {
         try {
             const discussions = await request(options);
             const assignees = await this.getReviewersAndAssignees(project_id, mr_iid);
+            const mr = await this.getMergeRequest(project_id, mr_iid);
+            const author = mr.author.username;
 
             console.log(`🔍 Checking unresolved discussions for MR ${mr_iid}`);
             console.log(`🔹 Assignees: ${assignees.length > 0 ? assignees.join(', ') : "None"}`);
+            console.log(`🔹 Author: ${author}`);
 
+            // Check if there are unresolved discussions that need action from assignees
+            const needsAssigneeAction = discussions.some(discussion => {
+                // Skip if first note is from the author or an assignee
+                if (discussion.notes[0].author.username === author || 
+                    assignees.includes(discussion.notes[0].author.username)) {
+                    return false;
+                }
+
+                // Check if there are unresolved notes in this discussion
+                const hasUnresolvedNotes = discussion.notes.some(note => 
+                    note.resolvable && !note.resolved
+                );
+
+                return hasUnresolvedNotes;
+            });
+
+            if (needsAssigneeAction) {
+                console.log(`  ⚠️ Unresolved discussions waiting for assignee action`);
+                // Return assignees as the blockers instead of reviewers
+                return assignees;
+            }
+
+            // Original logic to find reviewers who need to act based on assignee replies
             return discussions
                 .flatMap(discussion => {
                     // Ignore discussions started by an assignee
@@ -157,6 +183,20 @@ class GitLab {
         }
     }
 
+    async getMergeRequest(project_id, mr_iid) {
+        const options = {
+            uri: `${this.external_url}/api/v4/projects/${project_id}/merge_requests/${mr_iid}`,
+            headers: { 'PRIVATE-TOKEN': this.access_token },
+            json: true
+        };
+
+        try {
+            return await request(options);
+        } catch (error) {
+            console.error(`Error fetching MR ${mr_iid}:`, error);
+            throw error;
+        }
+    }
 
     async getApprovedUsers(project_id, mr_iid, allowedReviewers) {
         const options = {
@@ -277,13 +317,15 @@ class GitLab {
                         }
 
                         // 5. Get list of unresolved reviewers (discussions where last comment is not from assignee)
-                        // The getUnresolvedReviewers method already filters out discussions where:
-                        // - The discussion is started by an assignee
-                        // - The discussion is resolved
-                        // - The last comment is from an assignee
+                        // The updated getUnresolvedReviewers method now identifies:
+                        // 1. Assignees who need to act on unresolved discussions (when reviewers have left comments)
+                        // 2. Reviewers who need to act (when assignees have replied but discussion is still unresolved)
                         const unresolvedReviewers = await this.getUnresolvedReviewers(project.id, mr.iid);
-                        console.log(`   📝 Unresolved reviewers: ${unresolvedReviewers.length > 0 ? unresolvedReviewers.join(', ') : "None"}`);
+                        console.log(`   📝 Unresolved reviewers/assignees: ${unresolvedReviewers.length > 0 ? unresolvedReviewers.join(', ') : "None"}`);
 
+                        // Check if the unresolved reviewers list contains assignees
+                        const containsAssignees = unresolvedReviewers.some(user => assignees.includes(user));
+                        
                         // 6. Get pending reviewers (those who haven't approved yet)
                         const pendingReviewers = await this.getPendingApprovals(project.id, mr.iid);
                         console.log(`   🔄 Pending reviewers: ${pendingReviewers.length > 0 ? pendingReviewers.join(', ') : "None"}`);
@@ -297,8 +339,18 @@ class GitLab {
                         );
                         console.log(`   🔄 Assigned reviewers (filtered): ${assignedReviewers.length > 0 ? assignedReviewers.join(', ') : "None"}`);
 
-                        // 8. Combine potential blockers (unique set of unresolved reviewers, pending reviewers, and assigned reviewers)
-                        let blockers = [...new Set([...unresolvedReviewers, ...pendingReviewers, ...assignedReviewers])];
+                        // 8. Combine potential blockers
+                        let blockers = [];
+                        
+                        // If assignees need to take action on unresolved discussions, they are the blockers
+                        if (containsAssignees) {
+                            blockers = [...new Set(unresolvedReviewers)];
+                            console.log(`   ⚠️ Assignees need to act on discussions: ${blockers.join(', ')}`);
+                        } else {
+                            // Otherwise use the normal logic (unresolved reviewers + pending + assigned)
+                            blockers = [...new Set([...unresolvedReviewers, ...pendingReviewers, ...assignedReviewers])];
+                        }
+                        
                         console.log(`   ⚠️ Initial blockers: ${blockers.length > 0 ? blockers.join(', ') : "None"}`);
 
                         // 9. Exclude the MR author from the blockers list
